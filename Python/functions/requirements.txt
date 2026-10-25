@@ -1,0 +1,6 @@
+azure-functions
+azure-identity
+azure-mgmt-network
+python-dotenv
+azure-data-tables
+azure-monitor-ingestion

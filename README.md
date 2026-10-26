@@ -383,14 +383,6 @@ I focused on learning. My focus was the Python SDK workflow, Terraform, Azure
 identity/networking, and security automation. AI also assisted with supporting
 code and documentation; this is not a claim that every line was written unaided.
 
-The portfolio structure follows my [Azure Infrastructure & Security Lab](https://github.com/Anthonydeangelis/Azure-Infra-Security-Lab):
-verified outcomes first, architecture and decisions next, then milestone galleries,
-runbooks, and lessons. This is a related project with its own Python-led goal,
-not a second copy of the base lab.
-
-Before publishing, review screenshots and tracked files and regenerate exposed
-test credentials. Use the [publication checklist](docs/validation.md#before-making-the-repository-public).
-
 ## Project structure
 
 The directory map under [Getting started](#getting-started) separates application

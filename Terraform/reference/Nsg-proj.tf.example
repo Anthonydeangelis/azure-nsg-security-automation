@@ -1,0 +1,564 @@
+# User-supplied current project snapshot, received October 25, 2026.
+# Reference only: deployed within Azure-Infra-Security-Lab, not a standalone root.
+# Keep the .example suffix. Do not combine with the older overlapping snippets.
+# Resource names and application/client IDs are lab identifiers, not credentials.
+# The removed block records a historical state migration; do not execute it blindly.
+
+variable "nsg_workflow_name" {
+  description = "Existing Logic App name."
+  type        = string
+  default     = "NSG-change"
+}
+
+variable "nsg_sentinel_connection_name" {
+  description = "Existing Sentinel API connection in the same resource group and region."
+  type        = string
+  default     = "azuresentinel-1"
+}
+
+variable "nsg_automation_order" {
+  description = "Order among alert-created automation rules."
+  type        = number
+  default     = 100
+}
+
+# Deploy the Logic App definition through ARM using the AzureRM provider.
+resource "azurerm_resource_group_template_deployment" "nsg_change_workflow" {
+  name                = "nsg-change-workflow"
+  resource_group_name = var.rg-lab
+  deployment_mode     = "Incremental"
+
+  parameters_content = jsonencode({
+    workflowName = {
+      value = var.nsg_workflow_name
+    }
+    location = {
+      value = var.location
+    }
+    sentinelConnectionName = {
+      value = var.nsg_sentinel_connection_name
+    }
+  })
+
+  template_content = jsonencode({
+    "$schema"      = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+    contentVersion = "1.0.0.0"
+
+    parameters = {
+      workflowName = {
+        type = "string"
+      }
+      location = {
+        type = "string"
+      }
+      sentinelConnectionName = {
+        type = "string"
+      }
+    }
+
+    resources = [
+      {
+        type       = "Microsoft.Logic/workflows"
+        apiVersion = "2019-05-01"
+        name       = "[parameters('workflowName')]"
+        location   = "[parameters('location')]"
+
+        identity = {
+          type = "SystemAssigned"
+        }
+
+        properties = {
+          state = "Enabled"
+
+          definition = {
+            "$schema"      = "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#"
+            contentVersion = "1.0.0.0"
+
+            parameters = {
+              "$connections" = {
+                type         = "Object"
+                defaultValue = {}
+              }
+            }
+
+            triggers = {
+              Microsoft_Sentinel_alert = {
+                type = "ApiConnectionWebhook"
+
+                inputs = {
+                  host = {
+                    connection = {
+                      name = "@parameters('$connections')['sentinel']['connectionId']"
+                    }
+                  }
+
+                  body = {
+                    callback_url = "@listCallbackUrl()"
+                  }
+
+                  path = "/subscribe"
+                }
+              }
+            }
+
+            actions = {
+              Delay = {
+                type = "Wait"
+
+                inputs = {
+                  interval = {
+                    count = 30
+                    unit  = "Minute"
+                  }
+                }
+
+                runAfter = {}
+              }
+
+              Call_NSG_Checker = {
+                type = "Http"
+
+                inputs = {
+                  method = "POST"
+                  uri    = "https://ant-nsg-checker-01.azurewebsites.net/api/nsg_checker"
+
+                  authentication = {
+                    type     = "ManagedServiceIdentity"
+                    audience = "api://e121f511-e1c7-4c22-891b-457e6a6a91ed"
+                  }
+                }
+
+                runAfter = {
+                  Delay = ["Succeeded"]
+                }
+              }
+            }
+
+            outputs = {}
+          }
+
+          parameters = {
+            "$connections" = {
+              value = {
+                sentinel = {
+                  id = "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'azuresentinel')]"
+
+                  connectionId = "[resourceId('Microsoft.Web/connections', parameters('sentinelConnectionName'))]"
+
+                  connectionName = "[parameters('sentinelConnectionName')]"
+
+                  connectionProperties = {
+                    authentication = {
+                      type = "ManagedServiceIdentity"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+
+    outputs = {
+      workflowId = {
+        type  = "string"
+        value = "[resourceId('Microsoft.Logic/workflows', parameters('workflowName'))]"
+      }
+
+      principalId = {
+        type = "string"
+
+        value = "[reference(resourceId('Microsoft.Logic/workflows', parameters('workflowName')), '2019-05-01', 'Full').identity.principalId]"
+      }
+    }
+  })
+}
+
+# Route alerts from the NSG analytics rule to the Logic App.
+resource "azurerm_sentinel_automation_rule" "nsg_change_to_playbook" {
+  name = uuidv5(
+    "url",
+    "${lower(azurerm_log_analytics_workspace.lab-law.id)}/automation/nsg-change-to-playbook"
+  )
+
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.lab-law.id
+  display_name               = "Run NSG checker on NSG change alerts"
+  order                      = var.nsg_automation_order
+  enabled                    = true
+
+  triggers_on   = "Alerts"
+  triggers_when = "Created"
+
+  condition_json = jsonencode([
+    {
+      conditionType = "Property"
+
+      conditionProperties = {
+        propertyName = "AlertAnalyticRuleIds"
+        operator     = "Contains"
+
+        propertyValues = [
+          azurerm_sentinel_alert_rule_scheduled.nsg-config.id
+        ]
+      }
+    }
+  ])
+
+  action_playbook {
+    order = 1
+
+    logic_app_id = jsondecode(
+      azurerm_resource_group_template_deployment.nsg_change_workflow.output_content
+    ).workflowId.value
+  }
+}
+
+resource "azurerm_storage_account" "nsg_functions" {
+  name                     = "antsansgfunction01"
+  resource_group_name      = var.rg-lab
+  location                 = var.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+
+  min_tls_version                 = "TLS1_2"
+  allow_nested_items_to_be_public = false
+  shared_access_key_enabled       = false
+}
+
+resource "azurerm_storage_container" "nsg_deployment" {
+  name                  = "function-deployments"
+  storage_account_id    = azurerm_storage_account.nsg_functions.id
+  container_access_type = "private"
+}
+
+resource "azurerm_user_assigned_identity" "nsg_functions" {
+  name                = "mi-nsg-functions"
+  resource_group_name = var.rg-lab
+  location            = var.location
+}
+
+resource "azurerm_service_plan" "nsg_functions" {
+  name                = "plan-nsg-functions"
+  resource_group_name = var.rg-lab
+  location            = var.location
+
+  os_type  = "Linux"
+  sku_name = "FC1"
+}
+
+data "azurerm_client_config" "nsg_auth" {}
+
+resource "azurerm_function_app_flex_consumption" "nsg_fa" {
+  name                = "ant-nsg-checker-01"
+  resource_group_name = var.rg-lab
+  location            = var.location
+  service_plan_id     = azurerm_service_plan.nsg_functions.id
+
+  runtime_name    = "python"
+  runtime_version = "3.14"
+
+  storage_container_type = "blobContainer"
+
+  storage_container_endpoint = "${azurerm_storage_account.nsg_functions.primary_blob_endpoint}${azurerm_storage_container.nsg_deployment.name}"
+
+  storage_authentication_type       = "UserAssignedIdentity"
+  storage_user_assigned_identity_id = azurerm_user_assigned_identity.nsg_functions.id
+
+  https_only = true
+
+  identity {
+    type = "UserAssigned"
+
+    identity_ids = [
+      azurerm_user_assigned_identity.nsg_functions.id
+    ]
+  }
+
+  app_settings = {
+    # Prevent the provider from injecting a broken key-based connection.
+    AzureWebJobsStorage = ""
+
+    AzureWebJobsStorage__accountName = azurerm_storage_account.nsg_functions.name
+    AzureWebJobsStorage__credential  = "managedidentity"
+    AzureWebJobsStorage__clientId    = azurerm_user_assigned_identity.nsg_functions.client_id
+
+    # Used by your Python networking client.
+    AZURE_CLIENT_ID       = azurerm_user_assigned_identity.nsg_functions.client_id
+    AZURE_SUBSCRIPTION_ID = var.subscription_id
+
+    LOGS_INGESTION_ENDPOINT = jsondecode(
+      azurerm_resource_group_template_deployment.nsg_findings_dcr.output_content
+    ).ingestionEndpoint.value
+
+    LOGS_DCR_IMMUTABLE_ID = jsondecode(
+      azurerm_resource_group_template_deployment.nsg_findings_dcr.output_content
+    ).immutableId.value
+  }
+
+  auth_settings_v2 {
+    auth_enabled           = true
+    require_authentication = true
+    require_https          = true
+    unauthenticated_action = "Return401"
+    default_provider       = "azureactivedirectory"
+
+    active_directory_v2 {
+      # Existing Function API app registration.
+      client_id = "e121f511-e1c7-4c22-891b-457e6a6a91ed"
+
+      tenant_auth_endpoint = "https://login.microsoftonline.com/${data.azurerm_client_config.nsg_auth.tenant_id}/v2.0/"
+
+      allowed_audiences = [
+        "api://e121f511-e1c7-4c22-891b-457e6a6a91ed"
+      ]
+
+      allowed_applications = [
+        "8850c011-9afa-468d-8fd2-00d53ac5b1d1",
+        "c6276876-bed3-44cc-a324-30a496523dde",
+      ]
+
+      allowed_identities = [
+        jsondecode(
+          azurerm_resource_group_template_deployment.nsg_change_workflow.output_content
+        ).principalId.value,
+
+        azurerm_linux_virtual_machine.linux_vms["web"].identity[0].principal_id,
+      ]
+    }
+
+    login {
+      token_store_enabled = false
+    }
+  }
+
+  site_config {}
+}
+
+removed {
+  from = azurerm_storage_table.nsg_finding
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+
+resource "azurerm_resource_group_template_deployment" "nsg_findings_log_table" {
+  name                = "nsg-findings-log-table"
+  resource_group_name = var.rg-lab
+  deployment_mode     = "Incremental"
+
+  template_content = jsonencode({
+    "$schema"      = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+    contentVersion = "1.0.0.0"
+
+    resources = [
+      {
+        type       = "Microsoft.OperationalInsights/workspaces/tables"
+        apiVersion = "2022-10-01"
+        name       = "${azurerm_log_analytics_workspace.lab-law.name}/NsgFindings_CL"
+
+        properties = {
+          plan = "Analytics"
+
+          schema = {
+            name = "NsgFindings_CL"
+
+            columns = [
+              {
+                name = "TimeGenerated"
+                type = "datetime"
+              },
+              {
+                name = "NsgId"
+                type = "string"
+              },
+              {
+                name = "NsgName"
+                type = "string"
+              },
+              {
+                name = "RuleName"
+                type = "string"
+              },
+              {
+                name = "CheckType"
+                type = "string"
+              },
+              {
+                name = "Status"
+                type = "string"
+              },
+              {
+                name = "Reason"
+                type = "string"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "azurerm_resource_group_template_deployment" "nsg_findings_dcr" {
+  name                = "nsg-findings-dcr"
+  resource_group_name = var.rg-lab
+  deployment_mode     = "Incremental"
+
+  depends_on = [
+    azurerm_resource_group_template_deployment.nsg_findings_log_table
+  ]
+
+  template_content = jsonencode({
+    "$schema"      = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+    contentVersion = "1.0.0.0"
+
+    resources = [
+      {
+        type       = "Microsoft.Insights/dataCollectionRules"
+        apiVersion = "2023-03-11"
+        name       = "dcr-nsg-findings"
+        location   = azurerm_log_analytics_workspace.lab-law.location
+        kind       = "Direct"
+
+        properties = {
+          streamDeclarations = {
+            "Custom-NsgFindings" = {
+              columns = [
+                {
+                  name = "TimeGenerated"
+                  type = "datetime"
+                },
+                {
+                  name = "NsgId"
+                  type = "string"
+                },
+                {
+                  name = "NsgName"
+                  type = "string"
+                },
+                {
+                  name = "RuleName"
+                  type = "string"
+                },
+                {
+                  name = "CheckType"
+                  type = "string"
+                },
+                {
+                  name = "Status"
+                  type = "string"
+                },
+                {
+                  name = "Reason"
+                  type = "string"
+                }
+              ]
+            }
+          }
+
+          destinations = {
+            logAnalytics = [
+              {
+                name                = "nsg-workspace"
+                workspaceResourceId = azurerm_log_analytics_workspace.lab-law.id
+              }
+            ]
+          }
+
+          dataFlows = [
+            {
+              streams      = ["Custom-NsgFindings"]
+              destinations = ["nsg-workspace"]
+              transformKql = "source"
+              outputStream = "Custom-NsgFindings_CL"
+            }
+          ]
+        }
+      }
+    ]
+
+    outputs = {
+      immutableId = {
+        type  = "string"
+        value = "[reference(resourceId('Microsoft.Insights/dataCollectionRules', 'dcr-nsg-findings'), '2023-03-11').immutableId]"
+      }
+
+      ingestionEndpoint = {
+        type  = "string"
+        value = "[reference(resourceId('Microsoft.Insights/dataCollectionRules', 'dcr-nsg-findings'), '2023-03-11').endpoints.logsIngestion]"
+      }
+    }
+  })
+}
+
+resource "azurerm_sentinel_alert_rule_scheduled" "nsg_ssh_finding" {
+  name                       = "d41b3127-066c-4e46-9676-b315badc7474"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.lab-law.id
+  display_name               = "Unrestricted inbound SSH detected"
+  description                = "The NSG checker detected an inbound SSH allow rule with an unrestricted source."
+  severity                   = "Medium"
+  enabled                    = true
+
+  query_frequency   = "PT5M"
+  query_period      = "PT1H"
+  trigger_operator  = "GreaterThan"
+  trigger_threshold = 0
+
+  query = <<-KQL
+    NsgFindings_CL
+    | where TimeGenerated >= ago(1h)
+    | where ingestion_time() > ago(5m)
+    | where CheckType == "InternetSSH"
+    | where Status == "Risky"
+    | extend FindingKey = strcat(
+        tolower(NsgId), "|", tolower(RuleName), "|", CheckType
+      )
+    | summarize arg_max(TimeGenerated, *) by FindingKey
+    | project TimeGenerated, NsgId, NsgName, RuleName,
+              CheckType, Status, Reason, FindingKey
+  KQL
+
+  custom_details = {
+    FindingKey = "FindingKey"
+    NsgName    = "NsgName"
+    RuleName   = "RuleName"
+    CheckType  = "CheckType"
+  }
+
+  alert_details_override {
+    display_name_format = "Unrestricted SSH: {{NsgName}} / {{RuleName}}"
+    description_format  = "{{Reason}}. Observed at {{TimeGenerated}} UTC. Review current configuration before remediation."
+  }
+
+  entity_mapping {
+    entity_type = "AzureResource"
+
+    field_mapping {
+      identifier  = "ResourceId"
+      column_name = "NsgId"
+    }
+  }
+
+  event_grouping {
+    aggregation_method = "AlertPerResult"
+  }
+
+  incident {
+    create_incident_enabled = true
+
+    grouping {
+      enabled                 = true
+      lookback_duration       = "PT3H"
+      reopen_closed_incidents = false
+      entity_matching_method  = "Selected"
+      by_custom_details       = ["FindingKey"]
+    }
+  }
+
+  depends_on = [
+    azurerm_resource_group_template_deployment.nsg_findings_log_table
+  ]
+}

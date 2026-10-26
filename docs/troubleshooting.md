@@ -66,10 +66,10 @@ or restore shared keys simply to bypass an identity configuration issue.
 
 The table creation path reached an ACL operation that attempted key-based
 authentication while shared-key access was disabled. A table could exist even
-though the resource operation failed. The lab used an ARM template deployment for
-the table and reconciled the previous state entry without deleting its data.
-Do not create a second competing owner or assume an existing table means every
-Terraform step succeeded.
+though the resource operation failed. An ARM template alternative was discussed,
+and the supplied configuration retains a non-destructive state-removal block.
+The current table's creation method is not confirmed. Do not create a second
+competing owner or assume an existing table means every Terraform step succeeded.
 
 ## Missing local module or helper
 

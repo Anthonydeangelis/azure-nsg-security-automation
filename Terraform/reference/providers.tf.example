@@ -1,0 +1,18 @@
+# Reference from the owning Azure-Infra-Security-Lab configuration.
+# Keep the .example extension: this portfolio is not a standalone Terraform root.
+terraform {
+  required_version = "=1.16.4"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "=5.0.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {}
+  storage_use_azuread = true
+  subscription_id     = var.subscription_id
+}

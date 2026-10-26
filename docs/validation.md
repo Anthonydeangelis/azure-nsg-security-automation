@@ -4,17 +4,18 @@
 
 ## Observed lab outcomes
 
-These outcomes were observed during the October 25, 2026 build session. Screenshots
+These outcomes were observed during the October 23–25, 2026 build sessions. Screenshots
 are evidence of specific checkpoints, not performance benchmarks or proof of
 production reliability.
 
 | Checkpoint | Evidence / result |
 | --- | --- |
-| Change alert invokes delayed workflow | NSG-change alert and Logic App run observed; 30-minute delay completed |
+| Change alert invokes delayed workflow | [October 23 run](images/logic-app-delay-completed.png) shows trigger, completed 30-minute delay, and checker HTTP 200; earlier plain-text response |
 | Initial scan false negative diagnosed | Azure CLI readback showed uppercase `TCP`; helper normalization fixed the mismatch |
 | Function published and host started | Core Tools remote build completed and host health check passed |
 | Storage identity write | Connectivity-test entity observed, then real InternetSSH entities observed |
 | DCR ingestion | [Custom table screenshot](images/log-analytics-finding.png) contains the first risky finding |
+| DCR/table relationship | [Table configuration](images/custom-table-dcr.png) shows the linked DCR; this alone does not prove ingestion |
 | Finding-based incident | [Incident screenshot](images/sentinel-incident.png): incident 14, Medium, one alert, NSG mapped |
 | VM identity → reader API | VM test returned HTTP 200 and JSON from `/api/findings` |
 | Nginx → backend → API | VM loopback request through Nginx returned HTTP 200 |
@@ -25,6 +26,11 @@ production reliability.
 The incident and ingestion screenshots show the **earlier** `test_ssh-01` test.
 The final dashboard shows the **later** Internet service-tag replacement. Do not
 present these as one uninterrupted run with a single rule name.
+
+The [build story](build-story.md) explains each screenshot's role and the decision
+behind that stage. The [IPv6 rule editor](images/test-rule-ipv6.png) is input evidence,
+not proof of save completion or effective reachability. The October 23 workflow
+screenshot predates JSON output and persistence; it is not evidence for those later features.
 
 ## Local checks performed
 

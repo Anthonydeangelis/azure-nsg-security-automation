@@ -2,6 +2,10 @@
 
 [Portfolio overview](../README.md) · [Architecture](architecture.md) · [Validation](validation.md)
 
+For the reasoning and screenshots behind this sequence, read the
+[build story](build-story.md). For exact checked-in versus missing infrastructure
+coverage, see the [Terraform evidence map](../Terraform/README.md).
+
 This records the sequence used to build the lab. It is not a turnkey deployment.
 Infrastructure was applied in the existing
 [Azure-Infra-Security-Lab repository](https://github.com/Anthonydeangelis/Azure-Infra-Security-Lab),
@@ -16,7 +20,11 @@ not from this folder. Do not deploy a second owner for its existing resources.
 - Azure CLI for local authentication, Functions Core Tools v4, and Python matching the Function runtime. The deployed lab used Python 3.14.
 - A private SSH path to the web VM. The demonstrated VM used Ubuntu, Python 3.12 and Nginx 1.24.
 
-The checked-in `Terraform/` snippets include duplicate workflow/automation
+The [current project snapshot](../Terraform/reference/Nsg-proj.tf.example) records
+the author's supplied configuration. It includes external base-lab references and
+a historical state-migration block; it is not a standalone module.
+
+The older checked-in `Terraform/` snippets include duplicate workflow/automation
 definitions across `Sentinal_rule.tf`, `Logic_App.tf`, and `NSG_Automation.tf`.
 Some templates still have an empty `actions` object. These are learning artifacts,
 not files to concatenate or a current deployment bundle. Use the owning lab's
@@ -37,9 +45,10 @@ Review the plan before each apply. The live project used:
 8. A custom Analytics-plan `NsgFindings_CL` table, then a Direct DCR with matching stream schema and workspace destination.
 
 Table creation initially hit a shared-key ACL operation in the provider path;
-the table was subsequently managed via an ARM template deployment without
-reenabling account keys. Existing state ownership was reconciled rather than
-managing the same table twice. Do not copy a state-removal instruction into a
+an ARM deployment alternative was discussed without reenabling account keys.
+The current table exists, but its creation method is not confirmed and its
+provisioning definition is not supplied. The snapshot retains a historical
+state-removal block. Do not interpret that as table creation, or copy it into a
 different environment without checking its current state.
 
 Resource role assignments and API caller allowlists are different; see the

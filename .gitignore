@@ -1,0 +1,12 @@
+.env
+.venv/
+.DS_Store
+__pycache__/
+*.py[cod]
+local.settings.json
+
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan

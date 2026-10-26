@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NSG Findings | Azure Security Lab</title>
+  <link rel="stylesheet" href="nsg-dashboard.css">
+  <script src="nsg-dashboard.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">AZURE SECURITY LAB</p>
+        <h1>NSG findings</h1>
+        <p class="subtitle">Unrestricted-source inbound SSH rules detected by the checker.</p>
+      </div>
+      <button id="refresh" type="button">Refresh findings</button>
+    </header>
+
+    <section class="summary" aria-label="Results summary">
+      <div><span class="label">Saved findings</span><strong id="count">—</strong></div>
+      <div><span class="label">Results retrieved</span><strong id="retrieved">Not yet loaded</strong></div>
+      <div><span class="label">Source</span><strong>Azure Table Storage</strong></div>
+    </section>
+
+    <section class="results" aria-labelledby="results-heading" aria-busy="true" id="results">
+      <div class="section-heading">
+        <h2 id="results-heading">Detected rules</h2>
+        <span class="tag">Internet SSH</span>
+      </div>
+      <p id="status" role="status" aria-live="polite">Loading saved findings…</p>
+      <div class="table-wrap" id="table-wrap" hidden>
+        <table>
+          <caption class="sr-only">Saved unrestricted-source SSH findings</caption>
+          <thead><tr>
+            <th scope="col">Network security group</th>
+            <th scope="col">Rule</th>
+            <th scope="col">Status</th>
+            <th scope="col">Last detected</th>
+          </tr></thead>
+          <tbody id="findings"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <p class="note">Refresh retrieves saved results; it does not start a new NSG scan.
+      Findings reflect the last successful scan, not live network reachability.
+      An empty table does not prove that a scan has completed.</p>
+    <footer>Azure NSG Python Security Project · Read-only dashboard</footer>
+  </main>
+</body>
+</html>

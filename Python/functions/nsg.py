@@ -40,7 +40,7 @@ def nsg_check(rule):
     return (
         rule.access == "Allow"
         and rule.direction == "Inbound"
-        and rule.protocol in ("Tcp", "*")
+        and (rule.protocol or "").lower() in ("tcp", "*")
         and any(includes_ssh_port(port) for port in ports)
         and any(internet_exposed(source) for source in sources)
     )

@@ -1,0 +1,18 @@
+[Unit]
+Description=NSG dashboard backend
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=YOUR_VM_USER
+WorkingDirectory=/home/YOUR_VM_USER/nsg-dashboard
+EnvironmentFile=/etc/nsg-dashboard.env
+ExecStart=/home/YOUR_VM_USER/nsg-dashboard/.venv/bin/gunicorn --bind 127.0.0.1:8000 --timeout 60 app:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

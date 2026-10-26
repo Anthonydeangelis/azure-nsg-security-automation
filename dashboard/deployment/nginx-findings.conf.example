@@ -1,0 +1,7 @@
+# Add inside the existing server block, preserving its other locations.
+# This is not a complete standalone Nginx configuration.
+location = /api/findings {
+    proxy_pass http://127.0.0.1:8000/api/findings;
+    proxy_read_timeout 60s;
+    add_header Cache-Control "no-store" always;
+}

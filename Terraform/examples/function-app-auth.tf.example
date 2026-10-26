@@ -1,0 +1,49 @@
+# Merge the data source and variable into the owning lab configuration.
+# Insert ONLY the auth_settings_v2 block inside the EXISTING
+# azurerm_function_app_flex_consumption.nsg_fa resource.
+# Do not create a second resource for the same Function App.
+
+data "azurerm_client_config" "nsg_auth" {}
+
+variable "nsg_api_client_id" {
+  description = "Client ID of the existing Function API app registration, not either managed identity."
+  type        = string
+  default     = "e121f511-e1c7-4c22-891b-457e6a6a91ed"
+}
+
+# This block belongs inside the Function App resource.
+auth_settings_v2 {
+  auth_enabled           = true
+  require_authentication = true
+  require_https          = true
+  unauthenticated_action = "Return401"
+  default_provider       = "azureactivedirectory"
+
+  active_directory_v2 {
+    client_id            = var.nsg_api_client_id
+    tenant_auth_endpoint = "https://login.microsoftonline.com/${data.azurerm_client_config.nsg_auth.tenant_id}/v2.0/"
+
+    allowed_audiences = [
+      "api://${var.nsg_api_client_id}"
+    ]
+
+    allowed_identities = [
+      jsondecode(
+        azurerm_resource_group_template_deployment.nsg_change_workflow.output_content
+      ).principalId.value
+    ]
+  }
+
+  login {
+    token_store_enabled = false
+  }
+}
+
+# This accepts bearer tokens only from the allowed Logic App principal.
+# No client secret is needed for this token-validation flow. It intentionally
+# replaces browser sign-in configuration with API authentication, and uses the
+# principal-ID restriction rather than duplicating a client-application allowlist.
+# The existing Entra app registration remains outside this snippet's ownership.
+# Keep the workflow HTTP action audience equal to api://${var.nsg_api_client_id}.
+# Do not put a Function App resource reference in that workflow template while
+# the Function App auth depends on this deployment's principalId (dependency cycle).
